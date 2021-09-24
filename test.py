@@ -64,6 +64,7 @@ async def consume_logs(logdata):
         payload_data = msg.data.decode()
         print(payload_data + '\n')
         if "start worker process 32" in payload_data:
+            global foundlog 
             foundlog = True
 
     await nw.subscribe(
@@ -88,7 +89,6 @@ def mainloop(logdata) -> None:
     nats_consumer_coroutine = consume_logs(logdata)
 
     t = Thread(target=start_background_loop, args=(loop,), daemon=True)
-
     t.start()
 
     task = asyncio.run_coroutine_threadsafe(init_nats(), loop)
