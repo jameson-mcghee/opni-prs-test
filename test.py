@@ -30,11 +30,9 @@ def test():
     time.sleep(5)
 
     # nats subscribe
-    subscribe(tr_queue, "start worker process 32")
+    t = subscribe(tr_queue, "start worker process 32")
 
-    start_time = time.time()
-    while time.time() - start_time < 5:
-        continue
+    wait_for_seconds(5)
 
     print("sending data")
     r = requests.post("http://localhost:8080",
@@ -44,12 +42,9 @@ def test():
     if len(r.content) != 0:
         print(r.content)
 
-    print("Status: ")
-    print(r.status_code)
+    assert r.status_code == 200
 
-    start_time = time.time()
-    while time.time() - start_time < 5:
-        continue
+    wait_for_seconds(5) 
 
     loop = asyncio.get_event_loop()
     loop.stop()
@@ -57,12 +52,22 @@ def test():
     start_process("killall kubectl")
 
     foundlog = tr_queue.get()
-    assert foundlog == True
     tr_queue.task_done()
+    t.join()
+
+    assert foundlog == True
+
+
+def wait_for_seconds(seconds):
+    start_time = time.time()
+    while time.time() - start_time < 5:
+        continue
+
 
 def check_logs(incoming, expected):
     if expected in incoming:
         return True
+
 
 async def consume_logs(trqueue, logdata):
     async def subscribe_handler(msg):
@@ -75,6 +80,7 @@ async def consume_logs(trqueue, logdata):
         nats_subject="raw_logs",
         subscribe_handler=subscribe_handler,
     )
+
 
 async def init_nats():
     print("Attempting to connect to NATS")
@@ -95,7 +101,8 @@ def subscribe(trqueue, logdata):
 
     task = asyncio.run_coroutine_threadsafe(init_nats(), loop)
     task = asyncio.run_coroutine_threadsafe(nats_consumer_coroutine, loop)
-
+    
+    return t
 
 
 def start_process(command):
