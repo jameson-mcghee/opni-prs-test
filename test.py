@@ -5,6 +5,7 @@ import time
 
 from nats.aio.client import Client as NATS
 from nats.aio.errors import ErrConnectionClosed, ErrTimeout, ErrNoServers
+from queue import Queue
 from threading import Thread
 
 from opni_nats import NatsWrapper
@@ -14,11 +15,9 @@ logfile = "test.log"
 
 nw = NatsWrapper()
 
-t = None
-
-foundlog = False
-
 def test():
+    tr_queue = Queue()
+
     start_process("killall kubectl")
 
     log = open("test.log")
@@ -31,10 +30,10 @@ def test():
     time.sleep(5)
 
     # nats subscribe
-    mainloop(logdata)
+    subscribe(tr_queue, "start worker process 32")
 
     start_time = time.time()
-    while time.time() - start_time < 10:
+    while time.time() - start_time < 5:
         continue
 
     print("sending data")
@@ -49,7 +48,7 @@ def test():
     print(r.status_code)
 
     start_time = time.time()
-    while time.time() - start_time < 20:
+    while time.time() - start_time < 5:
         continue
 
     loop = asyncio.get_event_loop()
@@ -57,20 +56,23 @@ def test():
 
     start_process("killall kubectl")
 
+    foundlog = tr_queue.get()
     assert foundlog == True
+    tr_queue.task_done()
 
-async def consume_logs(logdata):
+def check_logs(incoming, expected):
+    if expected in incoming:
+        return True
+
+async def consume_logs(trqueue, logdata):
     async def subscribe_handler(msg):
         payload_data = msg.data.decode()
         print(payload_data + '\n')
-        if "start worker process 32" in payload_data:
-            global foundlog 
-            foundlog = True
+        if check_logs(payload_data, logdata):
+            trqueue.put(True)
 
     await nw.subscribe(
         nats_subject="raw_logs",
-        nats_queue="workers",
-        payload_queue="mask_logs",
         subscribe_handler=subscribe_handler,
     )
 
@@ -84,9 +86,9 @@ def start_background_loop(loop: asyncio.AbstractEventLoop) -> None:
     loop.run_forever()
 
 
-def mainloop(logdata) -> None:
+def subscribe(trqueue, logdata):
     loop = asyncio.get_event_loop()
-    nats_consumer_coroutine = consume_logs(logdata)
+    nats_consumer_coroutine = consume_logs(trqueue, logdata)
 
     t = Thread(target=start_background_loop, args=(loop,), daemon=True)
     t.start()
